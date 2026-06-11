@@ -4,6 +4,7 @@ import RIO
 
 data Env = Env
   { envLogFunc :: LogFunc
+  , envPort :: Int
   }
 
 instance HasLogFunc Env where
@@ -12,15 +13,23 @@ instance HasLogFunc Env where
       getter env = env.envLogFunc
       setter env lf = env {envLogFunc = lf}
 
-run :: RIO Env ()
+class HasPort env where
+  portL :: Lens' env Int
+
+instance HasPort Env where
+  portL = lens getter setter
+    where
+      getter env = env.envPort
+      setter env p = env {envPort = p}
+
+run :: (HasLogFunc env, HasPort env) => RIO env ()
 run = do
-  logInfo "Hello, ichiproxy"
-  logInfo "now running under my own Env"
+  port <- view portL
+  logInfo $ "ichiproxy starting on port " <> display port
 
 main :: IO ()
 main = do
-  logOpts <-
-    logOptionsHandle stderr True
-  --  <&> setLogUseTime False
+  let port = 8080
+  logOpts <- logOptionsHandle stderr True
   withLogFunc logOpts $ \lf ->
-    runRIO Env {envLogFunc = lf} run
+    runRIO Env {envLogFunc = lf, envPort = port} run
