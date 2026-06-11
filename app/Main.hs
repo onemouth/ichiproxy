@@ -1,10 +1,11 @@
 module Main where
 
+import qualified Network.Socket as NS
 import RIO
 
 data Env = Env
   { envLogFunc :: LogFunc
-  , envPort :: Int
+  , envListener :: NS.Socket
   }
 
 instance HasLogFunc Env where
@@ -13,23 +14,40 @@ instance HasLogFunc Env where
       getter env = env.envLogFunc
       setter env lf = env {envLogFunc = lf}
 
-class HasPort env where
-  portL :: Lens' env Int
+class HasListener env where
+  listenerL :: Lens' env NS.Socket
 
-instance HasPort Env where
-  portL = lens getter setter
+instance HasListener Env where
+  listenerL = lens getter setter
     where
-      getter env = env.envPort
-      setter env p = env {envPort = p}
+      getter env = env.envListener
+      setter env s = env {envListener = s}
 
-run :: (HasLogFunc env, HasPort env) => RIO env ()
-run = do
-  port <- view portL
-  logInfo $ "ichiproxy starting on port " <> display port
+openListenerIO :: Int -> IO NS.Socket
+openListenerIO port = do
+  sock <- NS.socket NS.AF_INET NS.Stream 0
+  NS.setSocketOption sock NS.ReuseAddr 1
+  let addr = NS.SockAddrInet (fromIntegral port) (NS.tupleToHostAddress (127, 0, 0, 1))
+  NS.bind sock addr
+  NS.listen sock 5
+  pure sock
+
+acceptOne :: (HasLogFunc env, HasListener env) => RIO env ()
+acceptOne = do
+  sock <- view listenerL
+  logInfo "waiting for a connection..."
+  bracket
+    (liftIO (NS.accept sock))
+    (\(conn, _) -> liftIO (NS.close conn))
+    $ \(_conn, peer) ->
+      logInfo $ "got connection from " <> displayShow peer
 
 main :: IO ()
 main = do
   let port = 8080
   logOpts <- logOptionsHandle stderr True
   withLogFunc logOpts $ \lf ->
-    runRIO Env {envLogFunc = lf, envPort = port} run
+    bracket (openListenerIO port) NS.close $ \sock ->
+      runRIO Env {envLogFunc = lf, envListener = sock} $ do
+        logInfo $ "ichiproxy listening on 127.0.0.1:" <> display port
+        acceptOne
