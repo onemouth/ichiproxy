@@ -1,11 +1,11 @@
 module Main where
 
-import qualified Network.Socket as NS
+import Network.Socket qualified as NS
 import RIO
 
 data Env = Env
-  { envLogFunc :: LogFunc
-  , envListener :: NS.Socket
+  { envLogFunc :: LogFunc,
+    envListener :: NS.Socket
   }
 
 instance HasLogFunc Env where
@@ -32,15 +32,17 @@ openListenerIO port = do
   NS.listen sock 5
   pure sock
 
-acceptOne :: (HasLogFunc env, HasListener env) => RIO env ()
-acceptOne = do
+handleConn :: (HasLogFunc env) => NS.Socket -> NS.SockAddr -> RIO env ()
+handleConn conn peer =
+  logInfo ("got connection from " <> displayShow peer)
+    `finally` liftIO (NS.close conn)
+
+acceptLoop :: (HasLogFunc env, HasListener env) => RIO env ()
+acceptLoop = do
   sock <- view listenerL
-  logInfo "waiting for a connection..."
-  bracket
-    (liftIO (NS.accept sock))
-    (\(conn, _) -> liftIO (NS.close conn))
-    $ \(_conn, peer) ->
-      logInfo $ "got connection from " <> displayShow peer
+  forever $ do
+    (conn, peer) <- liftIO (NS.accept sock)
+    void $ async (handleConn conn peer)
 
 main :: IO ()
 main = do
@@ -50,4 +52,4 @@ main = do
     bracket (openListenerIO port) NS.close $ \sock ->
       runRIO Env {envLogFunc = lf, envListener = sock} $ do
         logInfo $ "ichiproxy listening on 127.0.0.1:" <> display port
-        acceptOne
+        acceptLoop
