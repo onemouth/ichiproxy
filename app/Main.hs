@@ -1,4 +1,6 @@
 module Main where
 
+import RIO
+
 main :: IO ()
-main = putStrLn "Hello, Haskell!"
+main = runSimpleApp $ logInfo "Hello, ichiproxy"

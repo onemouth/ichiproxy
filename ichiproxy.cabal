@@ -66,9 +66,18 @@ executable ichiproxy
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
+    default-extensions:
+        NoImplicitPrelude
+      , NoFieldSelectors
+      , OverloadedStrings
+      , OverloadedLists
+      , OverloadedRecordDot
+      , LambdaCase
+      , ViewPatterns
 
     -- Other library packages from which modules are imported.
     build-depends:    base ^>=4.18.3.0
+                    , rio
 
     -- Directories containing source files.
     hs-source-dirs:   app

@@ -18,10 +18,12 @@ Currently a `cabal init` skeleton: one executable `ichiproxy` with `app/Main.hs`
 
 ## `rio` conventions (apply to every new module)
 
-- Replace `Prelude` with `RIO`. Either flip on `NoImplicitPrelude` in `default-extensions` and `import RIO`, or use `mixins: base hiding (Prelude), rio (RIO as Prelude)` in the cabal file. Pick one approach and stay consistent.
+- Prelude is swapped via `NoImplicitPrelude` (set in `default-extensions` in `ichiproxy.cabal`) — every module starts with `import RIO`. Do *not* switch to the `mixins:` style; keep the swap explicit and visible per file.
+- Other `default-extensions` already on: `NoFieldSelectors`, `OverloadedStrings`, `OverloadedLists`, `OverloadedRecordDot`, `LambdaCase`, `ViewPatterns`. Don't re-declare these per module; do add module-local pragmas for anything narrower (`{-# LANGUAGE RecordWildCards #-}`, etc.).
+- `OverloadedRecordDot` + `NoFieldSelectors`: prefer `env.logFunc` over `logFunc env`. Mind the whitespace — `a.b` is field access, `a . b` is function composition. Because `NoFieldSelectors` is on, the auto-generated selector function (`logFunc :: App -> LogFunc`) doesn't exist, so the standard `rio` lens recipe must be written with the dot getter: `logFuncL = lens (\x -> x.appLogFunc) (\x y -> x { appLogFunc = y })`. Record-update syntax is unaffected. `OverloadedRecordUpdate` is intentionally **off**.
 - Pull submodules from `RIO.ByteString`, `RIO.Text`, `RIO.Map`, `RIO.Process`, etc. — *not* from the underlying `bytestring` / `text` packages directly. This is the whole point of using `rio`.
 - The app type is `RIO Env a`. Define a single `Env` record holding shared resources (`logFunc`, config, connection pools, …) and write `HasFoo Env` instances so individual functions can declare narrow constraints (`(HasLogFunc env, HasProxyConfig env) => RIO env ()`) instead of demanding the whole `Env`.
-- Bootstrap with `runRIO env action`. Build `logFunc` via `logOptionsHandle stderr verbose >>= \opts -> withLogFunc opts $ \lf -> runRIO (Env lf …) app`.
+- Bootstrap with `runRIO env action`. For real apps build `logFunc` via `logOptionsHandle stderr verbose >>= \opts -> withLogFunc opts $ \lf -> runRIO (Env lf …) app`. `runSimpleApp` (currently in `app/Main.hs`) is fine for scratch code but lacks a custom `Env`.
 - Don't reintroduce `String`/`Prelude.IO` helpers when `rio` exposes a `Text`/`ByteString` equivalent.
 
 ## HTTPS pass-through proxy notes (first milestone)
@@ -54,7 +56,7 @@ No test suite exists yet. When adding one, prefer `hspec` (which `rio` already i
 
 - `cabal-version: 3.4`
 - `default-language: GHC2021` — assume those extensions are on; only list extras (e.g. `NoImplicitPrelude`, `OverloadedStrings`, `RecordWildCards`) when actually needed.
-- `build-depends: base ^>=4.18.3.0` — GHC 9.6.x. Adding `rio` will pull in `bytestring`, `text`, `unliftio`, etc. transitively; don't re-add them to `build-depends` unless a module uses them directly.
+- `build-depends: base ^>=4.18.3.0, rio` — GHC 9.6.x; `rio` pulls in `bytestring`, `text`, `unliftio`, `async`, `vector`, `unordered-containers`, etc. transitively. Don't re-add those to `build-depends` unless a module imports them directly (e.g. for something `rio` doesn't re-export).
 - `-Wall` is applied via the `warnings` common stanza; new components should `import: warnings` to inherit it.
 
 ## Conventions
