@@ -103,7 +103,7 @@ acceptLoop = do
 main :: IO ()
 main = do
   let port = 8080
-  logOpts <- logOptionsHandle stderr True
+  logOpts <- setLogUseLoc False <$> logOptionsHandle stderr True
   withLogFunc logOpts $ \lf -> do
     nextTid <- newIORef 1
     bracket (openListenerIO port) NS.close $ \sock ->
