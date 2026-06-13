@@ -33,7 +33,7 @@ jobs:
       - name: Stage binary
         shell: bash
         run: |
-          BIN=$(cabal list-bin ichiproxy)
+          BIN=$(cabal list-bin -O2 ichiproxy)
           mkdir staging
           cp "$BIN" "staging/ichiproxy-${{ matrix.os }}"
           file "staging/ichiproxy-${{ matrix.os }}"
