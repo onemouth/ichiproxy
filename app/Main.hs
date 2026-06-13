@@ -3,13 +3,21 @@ module Main where
 import Network.Socket qualified as NS
 import RIO
 
+newtype TraceId = TraceId Word64
+  deriving (Eq, Show)
+
+instance Display TraceId where
+  display (TraceId n) = "t=" <> display n
+
 data Env = Env
   { envLogFunc :: LogFunc,
-    envListener :: NS.Socket
+    envListener :: NS.Socket,
+    envNextTraceId :: IORef Word64
   }
 
 data ConnEnv = ConnEnv
   { connEnvOuter :: Env,
+    connEnvTraceId :: TraceId,
     connEnvConn :: NS.Socket,
     connEnvPeer :: NS.SockAddr
   }
@@ -56,6 +64,15 @@ instance HasPeer ConnEnv where
       getter ce = ce.connEnvPeer
       setter ce p = ce {connEnvPeer = p}
 
+class HasTraceId env where
+  traceIdL :: Lens' env TraceId
+
+instance HasTraceId ConnEnv where
+  traceIdL = lens getter setter
+    where
+      getter ce = ce.connEnvTraceId
+      setter ce t = ce {connEnvTraceId = t}
+
 openListenerIO :: Int -> IO NS.Socket
 openListenerIO port = do
   sock <- NS.socket NS.AF_INET NS.Stream 0
@@ -65,11 +82,12 @@ openListenerIO port = do
   NS.listen sock 5
   pure sock
 
-handleConn :: (HasLogFunc env, HasConn env, HasPeer env) => RIO env ()
+handleConn :: (HasLogFunc env, HasConn env, HasPeer env, HasTraceId env) => RIO env ()
 handleConn = do
+  tid <- view traceIdL
   peer <- view peerL
   conn <- view connL
-  logInfo ("got connection from " <> displayShow peer)
+  logInfo (display tid <> " got connection from " <> displayShow peer)
     `finally` liftIO (NS.close conn)
 
 acceptLoop :: RIO Env ()
@@ -78,15 +96,17 @@ acceptLoop = do
   sock <- view listenerL
   forever $ do
     (conn, peer) <- liftIO (NS.accept sock)
-    let connEnv = ConnEnv outer conn peer
+    tid <- liftIO $ atomicModifyIORef' outer.envNextTraceId (\n -> (n + 1, TraceId n))
+    let connEnv = ConnEnv outer tid conn peer
     void $ async (runRIO connEnv handleConn)
 
 main :: IO ()
 main = do
   let port = 8080
   logOpts <- logOptionsHandle stderr True
-  withLogFunc logOpts $ \lf ->
+  withLogFunc logOpts $ \lf -> do
+    nextTid <- newIORef 1
     bracket (openListenerIO port) NS.close $ \sock ->
-      runRIO Env {envLogFunc = lf, envListener = sock} $ do
+      runRIO Env {envLogFunc = lf, envListener = sock, envNextTraceId = nextTid} $ do
         logInfo $ "ichiproxy listening on 127.0.0.1:" <> display port
         acceptLoop
