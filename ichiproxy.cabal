@@ -69,6 +69,7 @@ common lang
 library
     import:           warnings, lang
     exposed-modules:  Ichiproxy.Env
+                    , Ichiproxy.Http
                     , Ichiproxy.Net
     build-depends:    base ^>=4.18.3.0
                     , rio

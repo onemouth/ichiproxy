@@ -5,7 +5,6 @@ module Ichiproxy.Env
     HasListener (..),
     HasConn (..),
     HasPeer (..),
-    outerL,
   )
 where
 

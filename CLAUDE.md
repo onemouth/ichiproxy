@@ -19,9 +19,10 @@ When in doubt, optimize for *learning the pattern* over shipping features. Prefe
 Current modules:
 
 - `Ichiproxy.Env` — the shared `Env` record, the per-connection `ConnEnv` wrapper, `TraceId`, the `Has*` classes (`HasListener`, `HasConn`, `HasPeer`) and instances. `ConnEnv` embeds `Env` by value; `HasLogFunc ConnEnv` delegates via `outerL . logFuncL`. Per-connection trace IDs are prefixed by swapping the embedded `envLogFunc` for a `setLogFormat`-derived `LogFunc` built per-accept from the global `envLogOpts` (which is why `Env` carries `envLogOpts` alongside `envLogFunc`).
-- `Ichiproxy.Net` — `openListenerIO` (binds via `getAddrInfo`, so `0.0.0.0` / `::` / hostnames all work), `acceptLoop :: RIO Env ()`, and the unexported `handleConn :: (HasLogFunc env, HasConn env, HasPeer env) => RIO env ()` — currently just logs `"got connection from <peer>"` and closes. Each accepted connection runs in a new `async` thread with its own per-conn `LogFunc` cleaned up via `finally`.
+- `Ichiproxy.Http` — pure `parseConnect :: ByteString -> Maybe (HostName, Int)` (rejects IPv6 bracketed form for v0) and `readRequestHead :: Socket -> IO ByteString` (reads to `\r\n\r\n`, capped at 8 KiB).
+- `Ichiproxy.Net` — `openListenerIO` (binds via `getAddrInfo`, so `0.0.0.0` / `::` / hostnames all work) and `acceptLoop :: RIO Env ()`. The unexported `handleConn` → `serveClient` → `tunnel` chain reads the request, replies `400` for non-CONNECT, dials the upstream (`dialUpstreamIO`), replies `502` on dial failure or `200 Connection established` on success, then runs two `splice` workers under `concurrently_`. Each accepted connection runs in a new `async` thread with its own per-conn `LogFunc` cleaned up via `finally`; the upstream socket has its own `finally`-cleanup.
 
-CONNECT parsing has **not** been written yet — that's the next milestone (see below). Test suite still absent.
+CONNECT v0 works end-to-end — verified with `curl -x http://localhost:PORT https://example.com -v`. Test suite still absent.
 
 ## `rio` conventions (apply to every new module)
 
@@ -36,15 +37,15 @@ CONNECT parsing has **not** been written yet — that's the next milestone (see 
 
 ## HTTPS pass-through proxy notes (first milestone)
 
-Status: listener + per-conn `async` + trace-id-prefixed `LogFunc` are done in `Ichiproxy.Net`. CONNECT parsing, upstream dial, and the byte splice are still TODO — `handleConn` currently just logs the peer and closes.
+Status: v0 done. Listener + per-conn `async` + trace-id-prefixed `LogFunc` + CONNECT line parsing + upstream dial + bidirectional splice are all wired up in `Ichiproxy.Net` / `Ichiproxy.Http`. Smoke-tested with curl through to example.com:443, plus 400 (non-CONNECT) and 502 (dial failure) error paths.
 
-Scope for v0:
+v0 scope, as built:
 
-- Listen on a TCP port — done via raw `Network.Socket` in `openListenerIO`. (We didn't reach for `Network.Run.TCP`; if higher-level needs appear, `network-run` is fine.)
-- Parse just enough of the HTTP request line to recognize `CONNECT host:port HTTP/1.1`.
-- Reply with `HTTP/1.1 200 Connection established\r\n\r\n`.
-- Open a TCP connection to `host:port` and splice bytes both ways until either side closes. Two `RIO env ()` workers racing under `concurrently_` / `race_` is the natural shape.
-- Plain `GET`/`POST` forwarding is **out of scope** until the CONNECT tunnel works end-to-end (verify with `curl -x http://localhost:PORT https://example.com -v`).
+- Listen on a TCP port — `openListenerIO` uses raw `Network.Socket` + `getAddrInfo`. (We didn't reach for `Network.Run.TCP`; if higher-level needs appear, `network-run` is fine.)
+- Parse just enough of the HTTP request line to recognize `CONNECT host:port HTTP/1.x` — `Ichiproxy.Http.parseConnect`, plus `readRequestHead` to consume to `\r\n\r\n`.
+- Reply with `HTTP/1.1 200 Connection established\r\n\r\n` on success, `400 Bad Request` on parse failure, `502 Bad Gateway` on upstream dial failure.
+- Open a TCP connection to `host:port` and splice bytes both ways — `dialUpstreamIO` + `splice` × 2 under `concurrently_`. `splice` half-closes the destination on EOF so the opposite direction unblocks.
+- Plain `GET`/`POST` forwarding is **still out of scope**.
 
 Things to consciously *not* do yet: TLS termination, certificate generation, request rewriting, auth, caching. Those are later milestones — keep the first one boring.
 
