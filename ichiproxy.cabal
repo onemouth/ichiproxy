@@ -80,6 +80,7 @@ executable ichiproxy
     build-depends:    base ^>=4.18.3.0
                     , rio
                     , network
+                    , optparse-simple
 
     -- Directories containing source files.
     hs-source-dirs:   app

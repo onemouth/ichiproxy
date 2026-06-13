@@ -1,6 +1,7 @@
 module Main where
 
 import Network.Socket qualified as NS
+import Options.Applicative.Simple
 import RIO
 
 newtype TraceId = TraceId Word64
@@ -64,12 +65,13 @@ instance HasPeer ConnEnv where
       getter ce = ce.connEnvPeer
       setter ce p = ce {connEnvPeer = p}
 
-openListenerIO :: Int -> IO NS.Socket
-openListenerIO port = do
-  sock <- NS.socket NS.AF_INET NS.Stream 0
+openListenerIO :: NS.HostName -> Int -> IO NS.Socket
+openListenerIO host port = do
+  let hints = NS.defaultHints {NS.addrFlags = [NS.AI_PASSIVE], NS.addrSocketType = NS.Stream}
+  addr : _ <- NS.getAddrInfo (Just hints) (Just host) (Just (show port))
+  sock <- NS.socket (NS.addrFamily addr) NS.Stream 0
   NS.setSocketOption sock NS.ReuseAddr 1
-  let addr = NS.SockAddrInet (fromIntegral port) (NS.tupleToHostAddress (127, 0, 0, 1))
-  NS.bind sock addr
+  NS.bind sock (NS.addrAddress addr)
   NS.listen sock 5
   pure sock
 
@@ -92,13 +94,45 @@ acceptLoop = do
     let connEnv = ConnEnv (outer {envLogFunc = connLF}) conn peer
     void $ async (runRIO connEnv handleConn `finally` liftIO cleanupLF)
 
+data Args = Args
+  { argsHost :: NS.HostName,
+    argsPort :: Int
+  }
+
+parseArgs :: Parser Args
+parseArgs =
+  Args
+    <$> strOption
+      ( long "host"
+          <> short 'h'
+          <> metavar "host"
+          <> value "127.0.0.1"
+          <> showDefault
+          <> help "Address to bind on"
+      )
+    <*> option
+      auto
+      ( long "port"
+          <> short 'p'
+          <> metavar "port"
+          <> value 8080
+          <> showDefault
+          <> help "Port to listen on"
+      )
+
 main :: IO ()
 main = do
-  let port = 8080
+  (args, ()) <-
+    simpleOptions
+      "0.1.0.0"
+      "ichiproxy"
+      "HTTPS pass-through proxy"
+      parseArgs
+      empty
   logOpts <- setLogUseLoc True <$> logOptionsHandle stderr True
   withLogFunc logOpts $ \lf -> do
     nextTid <- newIORef 1
-    bracket (openListenerIO port) NS.close $ \sock ->
+    bracket (openListenerIO args.argsHost args.argsPort) NS.close $ \sock ->
       runRIO Env {envLogFunc = lf, envLogOpts = logOpts, envListener = sock, envNextTraceId = nextTid} $ do
-        logInfo $ "ichiproxy listening on 127.0.0.1:" <> display port
+        logInfo $ "ichiproxy listening on " <> fromString args.argsHost <> ":" <> display args.argsPort
         acceptLoop
