@@ -1,0 +1,47 @@
+name: build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: setup
+        uses: haskell-actions/setup@v2
+        with:
+          ghc-version: '9.6.7'
+          cabal-version: '3.10'
+
+      - name: Cache cabal store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.setup.outputs.cabal-store }}
+          key: ${{ runner.os }}-ghc${{ steps.setup.outputs.ghc-version }}-${{ hashFiles('**/*.cabal') }}
+          restore-keys: |
+            ${{ runner.os }}-ghc${{ steps.setup.outputs.ghc-version }}-
+
+      - run: cabal update
+      - run: cabal build -O2
+
+      - name: Stage binary
+        shell: bash
+        run: |
+          BIN=$(cabal list-bin ichiproxy)
+          mkdir staging
+          cp "$BIN" "staging/ichiproxy-${{ matrix.os }}"
+          file "staging/ichiproxy-${{ matrix.os }}"
+          ls -lh "staging/ichiproxy-${{ matrix.os }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ichiproxy-${{ matrix.os }}
+          path: staging/ichiproxy-${{ matrix.os }}
+          retention-days: 30
+          if-no-files-found: error
