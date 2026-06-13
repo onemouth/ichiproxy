@@ -54,18 +54,7 @@ extra-doc-files:    CHANGELOG.md
 common warnings
     ghc-options: -Wall
 
-executable ichiproxy
-    -- Import common warning flags.
-    import:           warnings
-
-    -- .hs or .lhs file containing the Main module.
-    main-is:          Main.hs
-
-    -- Modules included in this executable, other than Main.
-    -- other-modules:
-
-    -- LANGUAGE extensions used by modules in this package.
-    -- other-extensions:
+common lang
     default-extensions:
         NoImplicitPrelude
       , NoFieldSelectors
@@ -75,15 +64,23 @@ executable ichiproxy
       , LambdaCase
       , ViewPatterns
       , StrictData
+    default-language: GHC2021
 
-    -- Other library packages from which modules are imported.
+library
+    import:           warnings, lang
+    exposed-modules:  Ichiproxy.Env
+                    , Ichiproxy.Net
+    build-depends:    base ^>=4.18.3.0
+                    , rio
+                    , network
+    hs-source-dirs:   src
+
+executable ichiproxy
+    import:           warnings, lang
+    main-is:          Main.hs
     build-depends:    base ^>=4.18.3.0
                     , rio
                     , network
                     , optparse-simple
-
-    -- Directories containing source files.
+                    , ichiproxy
     hs-source-dirs:   app
-
-    -- Base language which the package is written in.
-    default-language: GHC2021
